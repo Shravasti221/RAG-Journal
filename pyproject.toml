@@ -1,0 +1,26 @@
+[project]
+name = "journal"
+version = "0.1.0"
+description = "Offline Journaling RAG with Sentiment & Topic Detection"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "streamlit",
+    "pandas",
+    "torch",
+    "transformers",
+    "langchain",
+    "langchain-core",
+    "langchain-community",
+    "langchain-huggingface",
+    "langgraph",
+    "sentence-transformers",
+    "faiss-cpu",
+    "keybert",
+    "scikit-learn",
+    "bertopic[flair]>=0.17.3",
+    "bitsandbytes>=0.47.0",
+]
+
+[tool.uv]
+# Optional: pin exact versions for reproducibility

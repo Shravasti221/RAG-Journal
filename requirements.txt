@@ -1,0 +1,17 @@
+streamlit
+pandas
+torch
+transformers
+langchain
+langchain-core
+langchain-community
+langchain-huggingface
+langgraph
+sentence-transformers
+faiss-cpu
+keybert
+torch>=2.0.0
+transformers>=4.41.0
+bitsandbytes>=0.43.0
+accelerate
+huggingface_hub
