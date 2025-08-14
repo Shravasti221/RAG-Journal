@@ -1,8 +1,10 @@
 # rag/vector_store.py
-import pickle
+import os
+import json
 from langchain import hub
 from langgraph.graph import START, StateGraph
 from typing_extensions import List, TypedDict
+from typing import Any
 from langchain_core.documents import Document
 from langchain_core.vectorstores import InMemoryVectorStore
 from ..models.embedding_model import get_embedding_model
@@ -11,25 +13,42 @@ from ..utils.preprocessing import State
 
 
 class JournalVectorStore:
-    def __init__(self, llm, vector_store_path=VECTOR_STORE_PATH):
+    def __init__(self, llm, embedding_model, vector_store_path=VECTOR_STORE_PATH):
         self.vector_store_path = vector_store_path
-        self.embeddings = get_embedding_model()
+        self.embedding_model = embedding_model
         self.vector_store = self._load_vector_store()
         self.prompt = hub.pull("rlm/rag-prompt")
         self.llm = llm
 
     def _load_vector_store(self):
         """Load vector store from disk or initialize a new one."""
-        try:
-            with open(self.vector_store_path, "rb") as f:
-                return pickle.load(f)
-        except FileNotFoundError:
-            return InMemoryVectorStore(self.embeddings)
+         # Step 1: Resolve path one folder above current file
+        base_dir = os.path.dirname(os.path.abspath(__file__))  # current file dir
+        parent_dir = os.path.dirname(base_dir)  # one level up
+        vector_store_file = os.path.join(parent_dir, VECTOR_STORE_PATH)
+        print("Attempting to access vector store from : ", vector_store_file)
 
-    def _save_vector_store(self):
-        """Save current vector store to disk."""
-        with open(self.vector_store_path, "wb") as f:
-            pickle.dump(self.vector_store, f)
+        # Step 2: Ensure directory exists
+        os.makedirs(os.path.dirname(vector_store_file), exist_ok=True)
+
+        # Step 3: If file does not exist, create empty JSON file
+        if not os.path.exists(vector_store_file):
+            with open(vector_store_file, "w", encoding="utf-8") as f:
+                json.dump({}, f)  # empty JSON object
+            print(f"Created empty vector store at {vector_store_file}")
+            return None  # or return empty store object if preferred
+
+        # Step 4: Load vector store from file
+        try:
+            vector_store = InMemoryVectorStore.load(
+                path=vector_store_file,
+                embedding=self.embedding_model
+            )
+            print(f"Loaded vector store from {vector_store_file}")
+            return vector_store
+        except Exception as e:
+            print(f"Error loading vector store: {e}")
+            return None
 
     def add_entry(self, entry_text, metadata=None):
         """Add a journal entry to the vector store."""

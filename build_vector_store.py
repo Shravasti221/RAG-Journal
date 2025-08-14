@@ -1,81 +1,39 @@
 import os
-import pandas as pd
-import faiss
-from sentence_transformers import SentenceTransformer
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 import torch
-
+import pandas as pd
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_core.vectorstores import InMemoryVectorStore
+from langchain_core.documents import Document
 # ======== CONFIG ========
-DATA_FILE = "data/diary_entries.csv"
-VECTOR_STORE_DIR = "data/entries"
-VECTOR_STORE_PATH = os.path.join(VECTOR_STORE_DIR, "diary_index.faiss")
-METADATA_PATH = os.path.join(VECTOR_STORE_DIR, "metadata.csv")
-EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
+EMBED_MODEL_NAME = "sentence-transformers/all-mpnet-base-v2"
 LLM_MODEL_NAME = "HuggingFaceTB/SmolLM-135M"  # Change to SmolLM v3 if available
 TOP_K = 5
 # ========================
 
-def build_vector_store():
-    """Build FAISS vector store from CSV."""
-    try:
-        diary_df = pd.read_csv(DATA_FILE)
-    except FileNotFoundError:
-        print(f"[ERROR] No file found at {DATA_FILE}")
-        return
+# Initialize embeddings and vector store
+print(f"[INFO] Loading embedding model: {EMBED_MODEL_NAME}")
+embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL_NAME)
+vector_store = InMemoryVectorStore(embeddings)
+diary_df = pd.read_csv("C:\Users\Admin\source\Journal\data\diary_entries.csv")
+all_splits = [Document(page_content=text) for text in diary_df['Diary Entry'].dropna()]
+document_ids = vector_store.add_documents(documents=all_splits)
 
-    if diary_df.empty:
-        print("[INFO] CSV is empty — nothing to index.")
-        return
 
-    if "Diary Entry" not in diary_df.columns:
-        print("[ERROR] 'Diary Entry' column missing in CSV.")
-        return
+def add_entry(entry_text, mood):
+    """Add a new diary entry to the in-memory vector store."""
+    metadata = {"mood": mood}
+    vector_store.add_texts([entry_text], metadatas=[metadata])
+    print("[SUCCESS] Entry added to vector store.")
 
-    if "Mood" not in diary_df.columns:
-        print("[WARNING] 'Mood' column not found — metadata will not include mood.")
-
-    print(f"[INFO] Loading embedding model: {EMBED_MODEL_NAME}")
-    embed_model = SentenceTransformer(EMBED_MODEL_NAME)
-
-    texts = diary_df["Diary Entry"].fillna("").tolist()
-    print(f"[INFO] Generating embeddings for {len(texts)} entries...")
-    embeddings = embed_model.encode(texts, convert_to_numpy=True, normalize_embeddings=True)
-
-    dim = embeddings.shape[1]
-    index = faiss.IndexFlatIP(dim)
-    index.add(embeddings)
-
-    os.makedirs(VECTOR_STORE_DIR, exist_ok=True)
-    faiss.write_index(index, VECTOR_STORE_PATH)
-    diary_df.to_csv(METADATA_PATH, index=False)
-
-    print(f"[SUCCESS] Vector store saved at {VECTOR_STORE_PATH}")
-    print(f"[SUCCESS] Metadata saved at {METADATA_PATH}")
-
-def load_vector_store():
-    """Load FAISS index and metadata if available."""
-    if not os.path.exists(VECTOR_STORE_PATH) or not os.path.exists(METADATA_PATH):
-        print("[INFO] No existing vector store found. Building a new one...")
-        build_vector_store()
-
-    print("[INFO] Loading vector store and metadata...")
-    index = faiss.read_index(VECTOR_STORE_PATH)
-    diary_df = pd.read_csv(METADATA_PATH)
-    return index, diary_df
-
-def retrieve_entries(query, index, diary_df):
-    """Retrieve top matching entries from FAISS store."""
-    embed_model = SentenceTransformer(EMBED_MODEL_NAME)
-    query_emb = embed_model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
-    scores, indices = index.search(query_emb, TOP_K)
-
+def retrieve_entries(query):
+    """Retrieve top matching entries from the in-memory store."""
+    results = vector_store.similarity_search(query, k=TOP_K)
     retrieved = []
-    for idx in indices[0]:
-        if 0 <= idx < len(diary_df):
-            entry = diary_df.iloc[idx]["Diary Entry"][:200]  # first 200 chars
-            mood = diary_df.iloc[idx]["Mood"] if "Mood" in diary_df.columns else "N/A"
-            retrieved.append({"entry": entry, "mood": mood})
-
+    for doc in results:
+        entry_snippet = doc.page_content[:200]  # First 200 chars
+        mood = doc.metadata.get("mood", "N/A")
+        retrieved.append({"entry": entry_snippet, "mood": mood})
     return retrieved
 
 def answer_with_llm(query, context):
@@ -99,18 +57,25 @@ def answer_with_llm(query, context):
     return output[0]["generated_text"]
 
 if __name__ == "__main__":
-    index, diary_df = load_vector_store()
-
-    query = input("\nEnter your search query: ")
-    retrieved_entries = retrieve_entries(query, index, diary_df)
-
-    print("\n=== Retrieved Diary Entries (First 200 chars + Mood) ===")
-    for i, item in enumerate(retrieved_entries, 1):
-        print(f"{i}. Mood: {item['mood']} | {item['entry']}\n{'-'*40}")
-
-    combined_context = "\n".join([f"[Mood: {item['mood']}] {item['entry']}" for item in retrieved_entries])
-    print("__________________________________________________________________________________________________________")
-    answer = answer_with_llm(query, combined_context)
-
-    print("\n=== LLM Answer ===")
-    print(answer)
+    # Example usage
+    while True:
+        action = input("\nChoose action: [1] Add Entry, [2] Search, [3] Chat, [q] Quit: ").strip()
+        if action == "1":
+            mood = input("Mood: ")
+            entry = input("Diary entry: ")
+            add_entry(entry, mood)
+        elif action == "2":
+            query = input("Search query: ")
+            retrieved_entries = retrieve_entries(query)
+            print("\n=== Retrieved Diary Entries ===")
+            for i, item in enumerate(retrieved_entries, 1):
+                print(f"{i}. Mood: {item['mood']} | {item['entry']}\n{'-'*40}")
+        elif action == "3":
+            query = input("Ask me something: ")
+            retrieved_entries = retrieve_entries(query)
+            combined_context = "\n".join([f"[Mood: {item['mood']}] {item['entry']}" for item in retrieved_entries])
+            answer = answer_with_llm(query, combined_context)
+            print("\n=== LLM Answer ===")
+            print(answer)
+        elif action.lower() == "q":
+            break

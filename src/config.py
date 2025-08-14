@@ -13,7 +13,7 @@ EMOTION_MODEL_NAME = "SamLowe/roberta-base-go_emotions"
 LOCAL_LLM_MODEL_ID = "HuggingFaceTB/SmolLM-135M"
 
 # Vector store persistence file
-VECTOR_STORE_PATH = "data/vector_store.pkl"
+VECTOR_STORE_PATH = "data/vector_store.json"
 
 # Data file
 DATA_FILE = "data/diary_entries.csv"
